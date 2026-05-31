@@ -256,7 +256,6 @@ Expected:
 Arch Linux
 Arch Linux Recovery
 ```
-
 ## Recovery Workflow
 
 If update breaks system:
@@ -305,3 +304,112 @@ Recovery boot:
 ```text
 subvol=/@snapshots/recovery
 ```
+## Auto Recovery
+
+If the system becomes unbootable after an update:
+
+1. Reboot the system.
+2. Select:
+
+```text
+Arch Linux Recovery
+```
+
+from the systemd-boot menu.
+
+The recovery entry boots the readonly snapshot:
+
+```text
+@snapshots/recovery
+```
+
+Verify:
+
+```sh
+findmnt -no OPTIONS /
+```
+
+Expected:
+
+```text
+subvol=/@snapshots/recovery
+```
+
+### Restore Recovery Snapshot
+
+Run:
+
+```sh
+sudo rollback-to-recovery
+```
+
+Script:
+
+```bash
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+ROOT_DEV="/dev/mapper/root"
+
+mkdir -p /mnt
+
+mount -o subvolid=5 "$ROOT_DEV" /mnt
+
+mv /mnt/@ /mnt/@broken
+
+btrfs subvolume snapshot \
+    /mnt/@snapshots/recovery \
+    /mnt/@
+
+umount /mnt
+
+echo "Rollback complete. Reboot into Arch Linux."
+```
+
+The script:
+
+1. Mounts the Btrfs top-level subvolume.
+2. Renames the current root subvolume to `@broken`.
+3. Creates a new writable `@` from the recovery snapshot.
+4. Unmounts the filesystem.
+
+### Reboot
+
+```sh
+sudo reboot
+```
+
+Select:
+
+```text
+Arch Linux
+```
+
+### Verify Recovery
+
+```sh
+findmnt -no OPTIONS /
+```
+
+Expected:
+
+```text
+subvol=/@
+```
+
+The system is now running from the restored root filesystem.
+
+### Cleanup
+
+After confirming everything works:
+
+```sh
+sudo mount -o subvolid=5 /dev/mapper/root /mnt
+
+sudo btrfs subvolume delete /mnt/@broken
+
+sudo umount /mnt
+```
+
+This permanently removes the previously broken root subvolume.

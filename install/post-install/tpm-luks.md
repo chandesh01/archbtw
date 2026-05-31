@@ -51,48 +51,35 @@ yes
 ## List keyslots
 systemd-cryptenroll can list the keyslots in a LUKS device, similar to cryptsetup luksDump, but in a more user-friendly format.
 ```sh
-systemd-cryptenroll /dev/disk
+sudo systemd-cryptenroll $ROOT_DISK
 ```
 
 ## Erasing keyslots
 ```sh
-systemd-cryptenroll /dev/disk --wipe-slot=SLOT
+sudo systemd-cryptenroll $ROOT_DISK --wipe-slot=SLOT
 ```
 
 ## Enroll TPM2 Unlock
 Enroll TPM-bound unlock token:
 
 ```sh 
-sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7+11 dev/sda2
+sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 $ROOT_DISK
 ```
-## Recommended PCRs
 [PCR States](https://wiki.archlinux.org/title/Trusted_Platform_Module#Accessing_PCR_registers)
-
-| PCR | Purpose                    |
-| --- | -------------------------- |
-| 7   | Secure Boot state and keys |
-| 11  | UKI measurement            |
-
-Recommended:
-
-```text
-7+11
-```
 
 ## Configure mkinitcpio
 
 Edit:
-
 ```text
 /etc/mkinitcpio.conf
 ```
 
-Use:
-
 ```bash
-MODULES=(tpm_tis tpm_crb)
-BINARIES=(/usr/lib/systemd/systemd-tpm2-setup)
-HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt resume filesystems fsck)
+sudo sed -i \
+-e 's/^MODULES=.*/MODULES=(tpm_tis tpm_crb)/' \
+-e 's|^BINARIES=.*|BINARIES=(/usr/lib/systemd/systemd-tpm2-setup)|' \
+-e 's/^HOOKS=.*/HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt resume filesystems fsck)/' \
+/etc/mkinitcpio.conf
 ```
 
 Edit:
@@ -102,7 +89,10 @@ Edit:
 ```
 
 ```sh
-echo "rd.luks.name=$(blkid -s UUID -o value $ROOT_DISK)=root rd.luks.options=$(blkid -s UUID -o value $ROOT_DISK)=tpm2-device=auto root=/dev/mapper/root rootflags=subvol=@ rw noatime resume=/dev/mapper/root resume_offset=$(btrfs inspect-internal map-swapfile -r /swap/swapfile)" | sudo tee /etc/kernel/cmdline
+UUID=$(sudo blkid -s UUID -o value "$ROOT_DISK")
+OFFSET=$(sudo btrfs inspect-internal map-swapfile -r /swap/swapfile)
+
+echo "rd.luks.name=${UUID}=root rd.luks.options=${UUID}=tpm2-device=auto root=/dev/mapper/root rootflags=subvol=@ rw noatime resume=/dev/mapper/root resume_offset=${OFFSET}" | sudo tee /etc/kernel/cmdline >/dev/null
 ```
 
 ## Configure crypttab.initramfs
@@ -116,7 +106,7 @@ For redundancy, also create:
 Contents:
 
 ```sh
-echo "root UUID=$(blkid -s UUID -o value $ROOT_DISK) none tpm2-device=auto" | sudo tee /etc/kernel/cmdline
+echo "root UUID=$(sudo blkid -s UUID -o value $ROOT_DISK) none tpm2-device=auto" | sudo tee /etc/crypttab.initramfs
 ```
 
 

@@ -275,7 +275,7 @@ cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.bak
 Synchronize the pacman package databases using the new mirror list:
 
 ```sh
-pacman -Syy
+pacman -Syyu
 ```
 
 ## Installation
@@ -414,8 +414,9 @@ dns=systemd-resolved
 EOF
 
 # Configure resolv.conf
-ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-
+exit
+ln -sf /mnt/run/systemd/resolve/stub-resolv.conf /mnt/etc/resolv.conf
+arch-chroot /mnt
 # Enable services
 systemctl enable NetworkManager.service
 systemctl enable bluetooth.service

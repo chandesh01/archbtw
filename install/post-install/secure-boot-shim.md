@@ -8,23 +8,58 @@ UEFI Firmware
 shimx64.efi
    ↓ trusts your MOK key
 grubx64.efi
-   ↓ actually signed systemd-boot
+   ↓ signed systemd-boot
 Unified Kernel Image (UKI)
    ↓
 Linux boots
 ```
 
-This allows Secure Boot without replacing firmware keys.
+## Set Disk Variables
 
-## Install Required Packages
-
-Install Secure Boot tools:
+Example disk: `sda`
 
 ```sh
-sudo pacman -S sbsigntools mokutil
+export DISK="/dev/sda"
+export ESP_PART="1"
+export ROOT_PART="2"
+
+export ESP_DISK="${DISK}${ESP_PART}"
+export ROOT_DISK="${DISK}${ROOT_PART}"
 ```
 
-Install `shim-signed` from AUR:
+## Hyper-V Users
+
+Verify Hyper-V:
+
+```sh
+systemd-detect-virt
+```
+
+Expected:
+
+```text
+microsoft
+```
+
+Enable Secure Boot in Hyper-V and use:
+
+```text
+Microsoft UEFI Certificate Authority
+```
+
+Do not use:
+
+```text
+Microsoft Windows
+```
+
+## Install Packages
+
+```sh
+sudo pacman -S sbsigntools mokutil efibootmgr
+```
+
+Install shim:
 
 ```sh
 git clone https://aur.archlinux.org/shim-signed.git
@@ -38,403 +73,337 @@ Install systemd-boot:
 sudo bootctl install
 ```
 
-## Verify Secure Boot State
-
-Check Secure Boot status:
+## Verify Current State
 
 ```sh
 mokutil --sb-state
 ```
 
-Expected:
-
-```text
-SecureBoot enabled
-```
-
-## Generate Machine Owner Keys (MOK)
-
-Generate signing keys:
+## Generate MOK Keys
 
 ```sh
 openssl req -newkey rsa:2048 -nodes -keyout MOK.key -new -x509 -sha256 -days 3650 -subj "/CN=Machine Owner Key/" -out MOK.crt
 ```
 
-Convert certificate to DER format:
-
 ```sh
 openssl x509 -outform DER -in MOK.crt -out MOK.cer
 ```
 
-Generated files:
-
-| File      | Purpose                        |
-| --------- | ------------------------------ |
-| `MOK.key` | Private signing key            |
-| `MOK.crt` | PEM certificate                |
-| `MOK.cer` | DER certificate for MokManager |
-
-Use:
-
-```text
-RSA 2048
-```
-
-Some shim versions may fail with RSA 4096 keys.
-
-## Store Keys Securely
-
-Recommended location:
+## Store Keys
 
 ```sh
 sudo mkdir -p /root/secureboot
+```
+
+```sh
 sudo mv MOK.key MOK.crt MOK.cer /root/secureboot/
 ```
 
-Set permissions:
-
 ```sh
 sudo chmod 700 /root/secureboot
-sudo chmod 600 /root/secureboot/*
 ```
 
-## Copy Shim Files
+```sh
+sudo sh -c 'chmod 600 /root/secureboot/*'
+```
 
-Copy shim as fallback bootloader:
+## Install Shim
+
+```sh
+sudo mkdir -p /efi/EFI/BOOT
+```
 
 ```sh
 sudo cp /usr/share/shim-signed/shimx64.efi /efi/EFI/BOOT/BOOTX64.EFI
 ```
 
-Copy MokManager:
-
 ```sh
 sudo cp /usr/share/shim-signed/mmx64.efi /efi/EFI/BOOT/
-```
-
-## Sign systemd-boot
-
-Sign the real systemd-boot EFI binary:
-
-```sh
-sudo sbsign --key /root/secureboot/MOK.key --cert /root/secureboot/MOK.crt --output /efi/EFI/systemd/systemd-bootx64.efi.signed /efi/EFI/systemd/systemd-bootx64.efi
-```
-
-Replace original:
-
-```sh
-sudo mv /efi/EFI/systemd/systemd-bootx64.efi.signed /efi/EFI/systemd/systemd-bootx64.efi
-```
-
-## Copy Signed systemd-boot as Shim Target
-
-Shim expects a secondary EFI binary.
-
-Use signed systemd-boot as:
-
-```text
-grubx64.efi
-```
-
-Copy signed binary:
-
-```sh
-sudo cp /efi/EFI/systemd/systemd-bootx64.efi /efi/EFI/BOOT/grubx64.efi
-```
-
-## Sign UKIs
-
-#### Default UKI
-
-```sh
-sudo sbsign --key /root/secureboot/MOK.key --cert /root/secureboot/MOK.crt --output /efi/EFI/Linux/ArchLinux-linux.efi.signed /efi/EFI/Linux/ArchLinux-linux.efi
-```
-
-Replace original:
-
-```sh
-sudo mv /efi/EFI/Linux/ArchLinux-linux.efi.signed /efi/EFI/Linux/ArchLinux-linux.efi
-```
-
-#### Recovery UKI
-
-```sh
-sudo sbsign --key /root/secureboot/MOK.key --cert /root/secureboot/MOK.crt --output /efi/EFI/Linux/ArchLinux-recovery.efi.signed /efi/EFI/Linux/ArchLinux-recovery.efi
-```
-
-Replace original:
-
-```sh
-sudo mv /efi/EFI/Linux/ArchLinux-recovery.efi.signed /efi/EFI/Linux/ArchLinux-recovery.efi
-```
-
-## Verify Signatures
-
-Verify systemd-boot:
-
-```sh
-sbverify --list /efi/EFI/systemd/systemd-bootx64.efi
-```
-
-Verify shim target:
-
-```sh
-sbverify --list /efi/EFI/BOOT/grubx64.efi
-```
-
-Verify UKIs:
-
-```sh
-sbverify --list /efi/EFI/Linux/ArchLinux-linux.efi
-sbverify --list /efi/EFI/Linux/ArchLinux-recovery.efi
-```
-
-## Verify SBAT Section
-
-Modern shim requires EFI binaries to contain:
-
-```text
-.sbat
 ```
 
 Verify:
 
 ```sh
-objdump -j .sbat -s /efi/EFI/systemd/systemd-bootx64.efi
+sha256sum /efi/EFI/BOOT/BOOTX64.EFI
 ```
-
-and:
 
 ```sh
-objdump -j .sbat -s /efi/EFI/Linux/ArchLinux-linux.efi
+sha256sum /usr/share/shim-signed/shimx64.efi
 ```
 
-Modern `systemd-boot` and UKIs already contain SBAT metadata.
-
-## Enroll MOK Certificate
-
-Copy certificate to ESP:
+## Create Shim Boot Entry
 
 ```sh
-sudo cp /root/secureboot/MOK.cer /efi/
+sudo efibootmgr --unicode --disk "$DISK" --part "$ESP_PART" --create --label "Shim" --loader '\EFI\BOOT\BOOTX64.EFI'
 ```
 
-Import certificate:
+Verify:
 
 ```sh
-sudo mokutil --import /efi/MOK.cer
+efibootmgr -v
 ```
 
-You will be prompted for a temporary password.
-
-## Reboot and Enroll Key
-
-Reboot.
-
-Shim launches:
-
-```text
-MokManager
-```
-
-Choose:
-
-1. `Enroll key from disk`
-2. Select `MOK.cer`
-3. Confirm enrollment
-4. Enter password
-5. Continue boot
-
-Now shim trusts EFI binaries signed using your MOK.
-
-## Create EFI Boot Entry
-
-Create NVRAM entry:
-
-```sh
-sudo efibootmgr --unicode --disk /dev/nvme0n1 --part 1 --create --label "Shim" --loader '\EFI\BOOT\BOOTX64.EFI'
-```
-
-Adjust:
-
-* disk
-* partition
-* ESP path
-
-for your system.
-
-## Verify Secure Boot
-
-Check Secure Boot:
-
-```sh
-mokutil --sb-state
-```
-
-List enrolled keys:
-
-```sh
-mokutil --list-enrolled
-```
-
-## Automatic Re-Signing After Updates
-
-Kernel updates regenerate UKIs.
-
-`systemd` updates may replace:
-
-```text
-systemd-bootx64.efi
-```
-
-Create centralized signing script:
+## Create Signing Script
 
 ```sh
 sudo nano /usr/local/bin/sign-efi
 ```
 
-Contents:
-
 ```bash
-##!/usr/bin/env bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 KEY="/root/secureboot/MOK.key"
 CERT="/root/secureboot/MOK.crt"
-
-BOOT="/efi/EFI/systemd/systemd-bootx64.efi"
-SHIM_TARGET="/efi/EFI/BOOT/grubx64.efi"
 
 sign() {
     local file="$1"
 
     [[ -f "$file" ]] || return 0
 
-    echo "Signing $file"
+    if sbverify --cert "$CERT" "$file" >/dev/null 2>&1; then
+        echo "Already signed: $file"
+        return 0
+    fi
 
-    sbsign \
-        --key "$KEY" \
-        --cert "$CERT" \
-        --output "${file}.signed" \
-        "$file"
+    echo "Signing: $file"
+
+    sbsign --key "$KEY" --cert "$CERT" --output "${file}.signed" "$file"
 
     mv "${file}.signed" "$file"
 }
 
-## Sign systemd-boot
-sign "$BOOT"
+sign /efi/EFI/systemd/systemd-bootx64.efi
 
-## Copy signed systemd-boot for shim
-cp "$BOOT" "$SHIM_TARGET"
+cp -af /efi/EFI/systemd/systemd-bootx64.efi /efi/EFI/BOOT/grubx64.efi
 
-## Sign UKIs
-find /efi/EFI/Linux -name "*.efi" -type f | while read -r file; do
-    sign "$file"
+for uki in /efi/EFI/Linux/*.efi; do
+    [[ -f "$uki" ]] && sign "$uki"
 done
-```
 
-Make executable:
+echo "Done"
+```
 
 ```sh
 sudo chmod +x /usr/local/bin/sign-efi
 ```
 
-## Automatically Sign New UKIs
-
-Create kernel-install hook:
+## Initial Signing
 
 ```sh
-sudo mkdir -p /etc/kernel/install.d
-sudo nano /etc/kernel/install.d/99-sign-efi.install
+sudo /usr/local/bin/sign-efi
 ```
 
-Contents:
+## Verify Signatures
+
+```sh
+sbverify --list /efi/EFI/systemd/systemd-bootx64.efi
+```
+
+```sh
+sbverify --list /efi/EFI/BOOT/grubx64.efi
+```
+
+```sh
+sbverify --list /efi/EFI/Linux/ArchLinux-linux.efi
+```
+
+```sh
+sbverify --list /efi/EFI/Linux/ArchLinux-recovery.efi
+```
+
+## Verify SBAT
+
+```sh
+objdump -j .sbat -s /efi/EFI/systemd/systemd-bootx64.efi
+```
+
+```sh
+objdump -j .sbat -s /efi/EFI/Linux/ArchLinux-linux.efi
+```
+
+## Import MOK
+
+```sh
+sudo cp /root/secureboot/MOK.cer /efi/
+```
+
+```sh
+sudo mokutil --import /efi/MOK.cer
+```
+
+Set a temporary password.
+
+Verify:
+
+```sh
+mokutil --list-new
+```
+
+Expected:
+
+```text
+CN=Machine Owner Key
+```
+
+## Enroll MOK
+
+Enable Secure Boot and reboot.
+
+In MokManager:
+
+```text
+Enroll MOK
+Continue
+Yes
+```
+
+Enter the password used during import.
+
+Reboot again.
+
+## Automatic Re-Signing
+
+Create helper:
+
+```sh
+sudo nano /usr/local/bin/rebuild-and-sign-efi
+```
 
 ```bash
-##!/usr/bin/env bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-case "$1" in
-    add)
-        /usr/local/bin/sign-efi
-        ;;
-esac
+mkinitcpio -P
+/usr/local/bin/sign-efi
+```
+
+```sh
+sudo chmod +x /usr/local/bin/rebuild-and-sign-efi
+```
+
+## mkinitcpio Post Hook
+
+Sign UKIs whenever `mkinitcpio` generates them.
+
+Create hook directory:
+
+```sh
+sudo mkdir -p /etc/initcpio/post
+```
+
+Create hook:
+
+```sh
+sudo nano /etc/initcpio/post/90-sign-efi
+```
+
+```bash
+#!/usr/bin/env bash
+
+/usr/local/bin/sign-efi
 ```
 
 Make executable:
 
 ```sh
-sudo chmod +x /etc/kernel/install.d/99-sign-efi.install
+sudo chmod +x /etc/initcpio/post/90-sign-efi
 ```
 
-## Automatically Re-Sign After systemd Updates
+### Verify
 
-Create pacman hook:
+Rebuild UKIs:
+
+```sh
+sudo mkinitcpio -P
+```
+
+Verify signatures:
+
+```sh
+sbverify --list /efi/EFI/Linux/ArchLinux-linux.efi
+```
+
+```sh
+sbverify --list /efi/EFI/Linux/ArchLinux-recovery.efi
+```
+
+## Kernel Hook
 
 ```sh
 sudo mkdir -p /etc/pacman.d/hooks
-sudo nano /etc/pacman.d/hooks/95-systemd-boot-sign.hook
 ```
 
-Contents:
+```sh
+sudo nano /etc/pacman.d/hooks/95-secureboot-rebuild.hook
+```
 
 ```ini
 [Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Path
+Target = usr/lib/modules/*
+Target = usr/lib/initcpio/*
+
+[Action]
+Description = Rebuild UKIs and sign EFI binaries
+When = PostTransaction
+Exec = /usr/local/bin/rebuild-and-sign-efi
+```
+
+## systemd Hook
+
+```sh
+sudo nano /etc/pacman.d/hooks/96-systemd-boot-sign.hook
+```
+
+```ini
+[Trigger]
+Operation = Install
 Operation = Upgrade
 Type = Package
 Target = systemd
 
 [Action]
-Description = Re-signing systemd-boot for Secure Boot
+Description = Re-sign EFI binaries
 When = PostTransaction
 Exec = /usr/local/bin/sign-efi
 ```
 
-## Optional: Disable Shim Validation
+## Remove Setup
 
-If Secure Boot is only needed for Windows requirements:
-
-```sh
-sudo mokutil --disable-validation
-```
-
-Then:
-
-* Secure Boot remains enabled
-* shim loads unsigned EFI binaries
-
-## Kernel Module Warning
-
-Unsigned kernel modules may fail to load under Secure Boot.
-
-Especially:
-
-* NVIDIA
-* DKMS modules
-* VirtualBox
-* VMware
-* ZFS
-
-Such modules may require separate signing.
-
-## Remove Shim Setup
-
-Remove package:
+Remove shim:
 
 ```sh
 sudo pacman -R shim-signed
 ```
 
-Remove copied files:
+Remove files:
 
 ```sh
-sudo rm /efi/EFI/BOOT/BOOTX64.EFI
-sudo rm /efi/EFI/BOOT/mmx64.efi
-sudo rm /efi/EFI/BOOT/grubx64.efi
+sudo rm -f /efi/EFI/BOOT/BOOTX64.EFI
 ```
 
-Remove EFI boot entry:
+```sh
+sudo rm -f /efi/EFI/BOOT/mmx64.efi
+```
+
+```sh
+sudo rm -f /efi/EFI/BOOT/grubx64.efi
+```
+
+List entries:
 
 ```sh
 sudo efibootmgr
+```
+
+Remove Shim entry:
+
+```sh
 sudo efibootmgr -b XXXX -B
 ```
+
+Replace `XXXX` with the Shim boot number.

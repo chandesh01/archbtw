@@ -22,19 +22,23 @@ systemctl is-enabled NetworkManager
 systemctl is-enabled systemd-resolved
 ```
 
+## Enable resolvconf
+
+```sh
+sudo rm -f /etc/resolv.conf
+sudo ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+```
+
 ## Install NextDNS
 
 Install the NextDNS client from the AUR:
 
 ```sh
-paru -S nextdns
+git clone https://aur.archlinux.org/nextdns.git
+cd nextdns
+makepkg -si
 ```
 
-or:
-
-```sh
-yay -S nextdns
-```
 
 Enable the service:
 
@@ -53,7 +57,7 @@ systemctl status nextdns
 Ensure `/etc/resolv.conf` points to the systemd-resolved stub resolver:
 
 ```sh
-ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 ```
 
 Verify:
@@ -112,14 +116,14 @@ nextdns config set -config YOUR_CONFIG_ID
 Activate the configuration:
 
 ```sh
-nextdns activate
+sudo nextdns activate
 ```
 
 Restart services:
 
 ```sh
-systemctl restart nextdns
-systemctl restart systemd-resolved
+sudo systemctl restart nextdns
+sudo systemctl restart systemd-resolved
 ```
 
 ## Configure Custom DoH Upstreams
@@ -127,7 +131,7 @@ systemctl restart systemd-resolved
 Use Cloudflare as the upstream DNS provider:
 
 ```sh
-nextdns config set -forwarder .=https://cloudflare-dns.com/dns-query#1.1.1.1,1.0.0.1
+sudo nextdns config set -forwarder .=https://cloudflare-dns.com/dns-query#1.1.1.1,1.0.0.1
 ```
 
 Restart NextDNS:
